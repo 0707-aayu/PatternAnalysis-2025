@@ -5,7 +5,20 @@ from tqdm import tqdm
 
 from dataset import get_dataloader
 from modules import VQVAE
-from utils import calc_ssim, read_yaml_file
+from utils import calc_ssim, read_yaml_file, combine_images
+
+def save_combined_image(original, reconstructed, save_path, title=None):
+    # Reshape to [1, 1, H, W] for combine_images
+    original = original[None, None, :, :]
+    reconstructed = reconstructed[None, None, :, :]
+    combined = combine_images(original, reconstructed, max_images=1)
+    plt.imshow(combined, cmap='gray')
+    if title:
+        plt.title(title)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 
 def predict(config):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -40,6 +53,11 @@ def predict(config):
 
             total_ssim += ssim_value
             total_loss += loss.item()
+            save_combined_image(
+                original_image, reconstructed_image,
+                os.path.join(save_dir, f'image_{i:04d}.png'),
+                title=f"Loss: {loss.item():.4f}, SSIM: {ssim_value:.4f}",
+            )
             num_images += 1
 
     print(f"\nAverage test SSIM: {total_ssim/num_images:.4f}")
@@ -52,3 +70,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config = read_yaml_file(args.config)
     predict(config)
+
