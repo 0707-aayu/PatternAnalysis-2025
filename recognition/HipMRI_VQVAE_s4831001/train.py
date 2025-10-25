@@ -15,7 +15,7 @@ from dataset import get_dataloader
 from utils import get_transforms
 
 from modules import VQVAE
-from utils import calc_ssim, read_yaml_file
+from utils import calc_ssim, read_yaml_file, combine_images
 
 
 def calculate_batch_ssim(batch: torch.Tensor, reconstructed_batch: torch.Tensor) -> float:
@@ -83,6 +83,45 @@ def validate_one_epoch(model, val_loader, criterion, device, epoch, num_epochs):
     return avg_commitment_loss, avg_recon_loss, avg_total_loss, avg_ssim
 
 
+def save_epoch_image(train_orig, train_recon, val_orig, val_recon, epoch, image_dir):
+    # Helper to shape inputs into [1, 1, H, W]
+    def prepare_input(arr):
+        if isinstance(arr, np.ndarray):
+            if arr.ndim == 2:
+                arr = arr[np.newaxis, np.newaxis, :, :]
+            elif arr.ndim == 3:
+                arr = np.transpose(arr, (2, 0, 1))
+                arr = arr[np.newaxis, :, :, :]
+        elif isinstance(arr, torch.Tensor):
+            if arr.ndim == 2:
+                arr = arr.unsqueeze(0).unsqueeze(0)
+            elif arr.ndim == 3:
+                arr = arr.permute(2, 0, 1).unsqueeze(0)
+        return arr
+
+    train_orig = prepare_input(train_orig)
+    train_recon = prepare_input(train_recon)
+    val_orig = prepare_input(val_orig)
+    val_recon = prepare_input(val_recon)
+
+    train_img = combine_images(train_orig, train_recon)
+    val_img = combine_images(val_orig, val_recon)
+
+    plt.figure(figsize=(8, 4))
+    plt.subplot(1, 2, 1)
+    plt.imshow(train_img, cmap='gray')
+    plt.title("Train Original and Reconstructed")
+    plt.axis('off')
+
+    plt.subplot(1, 2, 2)
+    plt.imshow(val_img, cmap='gray')
+    plt.title("Validation Original and Reconstructed")
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(image_dir, f'epoch_{epoch}.png'))
+    plt.close()
+
 def train(config):
     # Setup variables
     model_params = config['model_parameters']
@@ -126,6 +165,15 @@ def train(config):
         val_commitment_loss, val_recon_loss, val_loss, val_ssim = validate_one_epoch(
             model, val_loader, criterion, device, epoch, num_epochs)
 
+        if epoch % 5 == 0:
+            save_epoch_image(
+                train_loader.dataset[0].cpu().numpy(),
+                model(train_loader.dataset[0].unsqueeze(0).to(device).float())[0].squeeze(0).cpu().detach().numpy(),
+                val_loader.dataset[0].cpu().numpy(),
+                model(val_loader.dataset[0].unsqueeze(0).to(device).float())[0].squeeze(0).cpu().detach().numpy(),
+                epoch,
+                image_dir)
+
         print(f"Epoch {epoch}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Train SSIM: {train_ssim:.4f}, Val SSIM: {val_ssim:.4f}")
 
         # Save best model
@@ -143,3 +191,4 @@ if __name__ == '__main__':
 
     config = read_yaml_file(args.config) 
     train(config)
+
