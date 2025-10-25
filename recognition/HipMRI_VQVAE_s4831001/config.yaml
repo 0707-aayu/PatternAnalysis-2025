@@ -1,0 +1,20 @@
+model_parameters:
+  in_channels: 1
+  hidden_channels: 128
+  res_channels: 32
+  nb_res_layers: 2
+  embed_dim: 64
+  nb_entries: 512
+  downscale_factor: 4
+
+train_dataset_dir: keras_slices_data/keras_slices_train
+val_dataset_dir: keras_slices_data/keras_slices_validate
+test_dataset_dir: keras_slices_data/keras_slices_test
+
+batch_size: 16
+learning_rate: 0.001
+num_epochs: 30
+log_dir: logs
+
+pretrained_path: logs/best_model.pth
+save_dir: predictions
