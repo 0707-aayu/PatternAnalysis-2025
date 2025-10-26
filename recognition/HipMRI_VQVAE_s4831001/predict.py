@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -36,9 +37,8 @@ def predict(config):
     model.eval()
     criterion = nn.MSELoss()
 
-    total_ssim = 0.0
-    total_loss = 0.0
-    num_images = 0
+    ssim_scores = []
+    loss_scores = []
 
     with torch.no_grad():
         for i, batch in enumerate(tqdm(test_loader, desc="Predicting"), 1):
@@ -51,17 +51,59 @@ def predict(config):
             reconstructed_image = reconstructed[0, 0].cpu().numpy()
             ssim_value = calc_ssim(original_image, reconstructed_image)
 
-            total_ssim += ssim_value
-            total_loss += loss.item()
+            ssim_scores.append(ssim_value)
+            loss_scores.append(loss.item())
+
             save_combined_image(
                 original_image, reconstructed_image,
                 os.path.join(save_dir, f'image_{i:04d}.png'),
                 title=f"Loss: {loss.item():.4f}, SSIM: {ssim_value:.4f}",
             )
-            num_images += 1
+            
+    ssim_scores = np.array(ssim_scores)
+    loss_scores = np.array(loss_scores)
 
-    print(f"\nAverage test SSIM: {total_ssim/num_images:.4f}")
-    print(f"Average test loss: {total_loss/num_images:.4f}")
+
+    # Statistics
+    print(f"\n=== Test Set SSIM Statistics ===")
+    print(f"Mean SSIM: {ssim_scores.mean():.4f}")
+    print(f"Median SSIM: {np.median(ssim_scores):.4f}")
+    print(f"Min SSIM: {ssim_scores.min():.4f}")
+    print(f"Max SSIM: {ssim_scores.max():.4f}")
+    print(f"Std Dev SSIM: {ssim_scores.std():.4f}")
+
+    print(f"\n=== Test Set Loss Statistics ===")
+    print(f"Mean Loss: {loss_scores.mean():.4f}")
+    print(f"Median Loss: {np.median(loss_scores):.4f}")
+    print(f"Min Loss: {loss_scores.min():.4f}")
+    print(f"Max Loss: {loss_scores.max():.4f}")
+
+    # Plot histogram
+    plt.figure(figsize=(12, 5))
+    
+    plt.subplot(1, 2, 1)
+    plt.hist(ssim_scores, bins=30, edgecolor='black', alpha=0.7)
+    plt.xlabel('SSIM Score')
+    plt.ylabel('Frequency')
+    plt.title('SSIM Distribution on Test Set')
+    plt.axvline(ssim_scores.mean(), color='red', linestyle='--', label=f'Mean: {ssim_scores.mean():.3f}')
+    plt.axvline(np.median(ssim_scores), color='green', linestyle='--', label=f'Median: {np.median(ssim_scores):.3f}')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+
+    plt.subplot(1, 2, 2)
+    plt.hist(loss_scores, bins=30, edgecolor='black', alpha=0.7, color='orange')
+    plt.xlabel('Loss')
+    plt.ylabel('Frequency')
+    plt.title('Loss Distribution on Test Set')
+    plt.axvline(loss_scores.mean(), color='red', linestyle='--', label=f'Mean: {loss_scores.mean():.3f}')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, 'ssim_loss_distribution.png'), dpi=300)
+    plt.close()
+    print(f"\nSSIM/Loss distribution plot saved to {save_dir}/ssim_loss_distribution.png")
 
 if __name__ == '__main__':
     import argparse
@@ -70,4 +112,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config = read_yaml_file(args.config)
     predict(config)
+
 
