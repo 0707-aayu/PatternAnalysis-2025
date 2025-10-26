@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import shutil
+import json
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -84,43 +85,115 @@ def validate_one_epoch(model, val_loader, criterion, device, epoch, num_epochs):
 
 
 def save_epoch_image(train_orig, train_recon, val_orig, val_recon, epoch, image_dir):
-    # Helper to shape inputs into [1, 1, H, W]
-    def prepare_input(arr):
-        if isinstance(arr, np.ndarray):
-            if arr.ndim == 2:
-                arr = arr[np.newaxis, np.newaxis, :, :]
-            elif arr.ndim == 3:
-                arr = np.transpose(arr, (2, 0, 1))
-                arr = arr[np.newaxis, :, :, :]
-        elif isinstance(arr, torch.Tensor):
-            if arr.ndim == 2:
-                arr = arr.unsqueeze(0).unsqueeze(0)
-            elif arr.ndim == 3:
-                arr = arr.permute(2, 0, 1).unsqueeze(0)
+     """
+    Save a readable preview:
+      Left panel  : [Train Original | Train Recon]
+      Right panel : [Val   Original | Val   Recon]
+    """    
+    # ------ helpers ------
+    def to_bchw(arr):
+        """Ensure array is [1,1,H,W] or [B,1,H,W]. Accepts numpy or torch."""
+        if isinstance(arr, torch.Tensor):
+            arr = arr.detach().cpu().numpy()
+        # numpy path
+        if arr.ndim == 2:                 # [H,W]
+            arr = arr[None, None, ...]
+        elif arr.ndim == 3:
+            # could be [1,H,W] or [C,H,W] or [H,W,C]
+            if arr.shape[0] in (1, 3):    # [C,H,W]
+                if arr.shape[0] != 1:
+                    arr = arr[:1]         # keep first channel
+                arr = arr[None, ...]      # -> [1,1,H,W]
+            elif arr.shape[-1] in (1, 3): # [H,W,C]
+                arr = np.transpose(arr, (2, 0, 1))[None, ...]
+                if arr.shape[1] != 1:
+                    arr = arr[:, :1]
+            else:                          # [1,H,W] already
+                arr = arr[None, ...]
+        # if [B,1,H,W] already, leave as is
         return arr
 
-    train_orig = prepare_input(train_orig)
-    train_recon = prepare_input(train_recon)
-    val_orig = prepare_input(val_orig)
-    val_recon = prepare_input(val_recon)
+    def norm01(x):
+        x = x.astype(np.float32)
+        mn, mx = x.min(), x.max()
+        if mx > mn:
+            x = (x - mn) / (mx - mn)
+        else:
+            x = np.zeros_like(x)
+        return x
 
-    train_img = combine_images(train_orig, train_recon)
-    val_img = combine_images(val_orig, val_recon)
+    # ------ standardize shapes ------
+    train_orig = to_bchw(train_orig)
+    train_recon = to_bchw(train_recon)
+    val_orig   = to_bchw(val_orig)
+    val_recon  = to_bchw(val_recon)
 
-    plt.figure(figsize=(8, 4))
-    plt.subplot(1, 2, 1)
-    plt.imshow(train_img, cmap='gray')
-    plt.title("Train Original and Reconstructed")
-    plt.axis('off')
+    # take the first image in the (mini)batch and squeeze to [H,W]
+    to_img = lambda a: a[0, 0]
+    tr_o = to_img(train_orig)
+    tr_r = to_img(train_recon)
+    va_o = to_img(val_orig)
+    va_r = to_img(val_recon)
 
-    plt.subplot(1, 2, 2)
-    plt.imshow(val_img, cmap='gray')
-    plt.title("Validation Original and Reconstructed")
-    plt.axis('off')
+    # normalize each image to 0–1 for display
+    tr_o, tr_r, va_o, va_r = map(norm01, (tr_o, tr_r, va_o, va_r))
+
+    # build horizontal pairs: [original | reconstruction]
+    train_pair = np.hstack([tr_o, tr_r])
+    val_pair   = np.hstack([va_o, va_r])
+
+    # ------ plot ------
+    plt.figure(figsize=(10, 4.2))
+    ax1 = plt.subplot(1, 2, 1)
+    ax1.imshow(train_pair, cmap='gray', aspect='auto')
+    ax1.set_title("Train Original and Reconstructed Image")
+    ax1.axis('off')
+
+    ax2 = plt.subplot(1, 2, 2)
+    ax2.imshow(val_pair, cmap='gray', aspect='auto')
+    ax2.set_title("Validation Original and Reconstructed Image")
+    ax2.axis('off')
+
+    plt.tight_layout(pad=1.2)
+    os.makedirs(image_dir, exist_ok=True)
+    plt.savefig(os.path.join(image_dir, f'epoch_{epoch}.png'), dpi=200, bbox_inches='tight')
+    plt.close()
+
+
+def plot_training_curves(metrics, save_path):
+    """
+    Plot and save training/validation loss and SSIM curves
+    """
+    epochs = metrics['epochs']
+    train_loss = metrics['train_loss']
+    val_loss = metrics['val_loss']
+    train_ssim = metrics['train_ssim']
+    val_ssim = metrics['val_ssim']
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Loss curves
+    axes[0].plot(epochs, train_loss, label='Train Loss', marker='o', linewidth=2)
+    axes[0].plot(epochs, val_loss, label='Val Loss', marker='s', linewidth=2)
+    axes[0].set_xlabel('Epoch', fontsize=12)
+    axes[0].set_ylabel('Loss', fontsize=12)
+    axes[0].set_title('Training and Validation Loss', fontsize=14)
+    axes[0].legend(fontsize=11)
+    axes[0].grid(True, alpha=0.3)
+
+    # SSIM curves
+    axes[1].plot(epochs, train_ssim, label='Train SSIM', marker='o', linewidth=2, color='green')
+    axes[1].plot(epochs, val_ssim, label='Val SSIM', marker='s', linewidth=2, color='orange')
+    axes[1].set_xlabel('Epoch', fontsize=12)
+    axes[1].set_ylabel('SSIM', fontsize=12)
+    axes[1].set_title('Training and Validation SSIM', fontsize=14)
+    axes[1].legend(fontsize=11)
+    axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(image_dir, f'epoch_{epoch}.png'))
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
+    print(f"Training curves saved to {save_path}")
 
 def train(config):
     # Setup variables
@@ -159,29 +232,68 @@ def train(config):
 
     best_val_loss = float('inf')
 
+    # Initialize metrics tracking
+    metrics = {
+        'epochs': [],
+        'train_loss': [],
+        'val_loss': [],
+        'train_ssim': [],
+        'val_ssim': []
+    }
+
     for epoch in range(1, num_epochs + 1):
         train_commitment_loss, train_recon_loss, train_loss, train_ssim = train_one_epoch(
             model, train_loader, criterion, optimizer, device, epoch, num_epochs)
         val_commitment_loss, val_recon_loss, val_loss, val_ssim = validate_one_epoch(
             model, val_loader, criterion, device, epoch, num_epochs)
+        
+        # Track metrics
+        metrics['epochs'].append(epoch)
+        metrics['train_loss'].append(train_loss)
+        metrics['val_loss'].append(val_loss)
+        metrics['train_ssim'].append(train_ssim)
+        metrics['val_ssim'].append(val_ssim)
 
+        # Save example images every 5 epochs
         if epoch % 5 == 0:
-            save_epoch_image(
-                train_loader.dataset[0].cpu().numpy(),
-                model(train_loader.dataset[0].unsqueeze(0).to(device).float())[0].squeeze(0).cpu().detach().numpy(),
-                val_loader.dataset[0].cpu().numpy(),
-                model(val_loader.dataset[0].unsqueeze(0).to(device).float())[0].squeeze(0).cpu().detach().numpy(),
-                epoch,
-                image_dir)
+            was_training = model.training
+            model.eval()
+            with torch.no_grad():
+                tr_np = train_loader.dataset[0].cpu().numpy()  # [1,H,W]
+                va_np = val_loader.dataset[0].cpu().numpy()    # [1,H,W]
 
-        print(f"Epoch {epoch}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Train SSIM: {train_ssim:.4f}, Val SSIM: {val_ssim:.4f}")
+                tr_rec = model(torch.from_numpy(tr_np).unsqueeze(0).to(device).float())[0].squeeze(0).cpu().numpy()
+                va_rec = model(torch.from_numpy(va_np).unsqueeze(0).to(device).float())[0].squeeze(0).cpu().numpy()
+
+                save_epoch_image(
+                    tr_np,
+                    tr_rec,
+                    va_np,
+                    va_rec,
+                    epoch,
+                    image_dir
+                )
+            if was_training:
+                model.train()
+
+            # Plot training curves
+            plot_training_curves(metrics, os.path.join(log_dir, 'training_curves.png'))
+
+        print(f"Epoch {epoch}/{num_epochs}, "
+              f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
+              f"Train SSIM: {train_ssim:.4f}, Val SSIM: {val_ssim:.4f}")
 
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), os.path.join(log_dir, 'best_model.pth'))
 
-   
+
+    # Save final metrics
+    with open(os.path.join(log_dir, 'metrics.json'), 'w') as f:
+        json.dump(metrics, f, indent=4)
+    plot_training_curves(metrics, os.path.join(log_dir, 'final_training_curves.png'))
+    print(f"Training complete! Best validation loss: {best_val_loss:.4f}")   
 
 
 if __name__ == '__main__':
@@ -191,4 +303,5 @@ if __name__ == '__main__':
 
     config = read_yaml_file(args.config) 
     train(config)
+
 
