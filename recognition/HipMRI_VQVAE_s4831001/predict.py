@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from dataset import get_dataloader
@@ -112,5 +113,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config = read_yaml_file(args.config)
     predict(config)
+
 
 
