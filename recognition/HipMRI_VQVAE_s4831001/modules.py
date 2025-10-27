@@ -121,6 +121,7 @@ class VQVAE(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         encoded = self.encoder(x)
-        quantized, diff, _ = self.code_layer(encoded)
+        quantized, diff, embed_ind = self.code_layer(encoded)
         decoded = self.decoder(quantized)
-        return decoded, diff
+        return decoded, diff, embed_ind
+
