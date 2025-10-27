@@ -44,7 +44,7 @@ def predict(config):
     with torch.no_grad():
         for i, batch in enumerate(tqdm(test_loader, desc="Predicting"), 1):
             batch = batch.to(device).float()
-            reconstructed, commitment_loss = model(batch)
+            reconstructed, commitment_loss, _ = model(batch)
             recon_loss = criterion(reconstructed, batch)
             loss = recon_loss + commitment_loss
 
@@ -113,6 +113,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config = read_yaml_file(args.config)
     predict(config)
+
 
 
 
