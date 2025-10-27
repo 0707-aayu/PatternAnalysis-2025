@@ -27,18 +27,32 @@ def calculate_batch_ssim(batch: torch.Tensor, reconstructed_batch: torch.Tensor)
         batch_ssim += calc_ssim(original_image, reconstructed_image)
     return batch_ssim / batch.size(0)
 
+def compute_perplexity_from_indices(embed_ind: torch.Tensor, n_embed: int) -> float:
+    """
+    Perplexity = exp(entropy) of code usage for this batch.
+    embed_ind: [B, H', W'] long tensor of code indices.
+    """
+    flat = embed_ind.view(-1)
+    counts = torch.bincount(flat, minlength=n_embed).float()
+    total = counts.sum().clamp_min(1.0)
+    p = counts / total
+    eps = 1e-12
+    entropy = -(p * (p + eps).log()).sum()
+    return torch.exp(entropy).item()
 
-def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, num_epochs):
+
+def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, num_epochs, n_embed):
     model.train()
     total_commitment_loss = 0.0
     total_recon_loss = 0.0
     total_loss = 0.0
     total_ssim = 0.0
+    total_ppl = 0.0
 
     for batch in tqdm(train_loader, desc=f"Training Epoch {epoch}/{num_epochs}"):
         batch = batch.to(device).float()
         optimizer.zero_grad()
-        reconstructed, commitment_loss = model(batch)
+        reconstructed, commitment_loss, embed_ind = model(batch)
         recon_loss = criterion(reconstructed, batch)
         loss = recon_loss + commitment_loss
         loss.backward()
@@ -48,26 +62,28 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, nu
         total_recon_loss += recon_loss.item()
         total_loss += loss.item()
         total_ssim += calculate_batch_ssim(batch, reconstructed)
+        total_ppl += compute_perplexity_from_indices(embed_ind, n_embed)
 
     avg_commitment_loss = total_commitment_loss / len(train_loader)
     avg_recon_loss = total_recon_loss / len(train_loader)
     avg_total_loss = total_loss / len(train_loader)
     avg_ssim = total_ssim / len(train_loader)
 
-    return avg_commitment_loss, avg_recon_loss, avg_total_loss, avg_ssim
+    return avg_commitment_loss, avg_recon_loss, avg_total_loss, avg_ssim, (total_ppl / len(train_loader))
 
 
-def validate_one_epoch(model, val_loader, criterion, device, epoch, num_epochs):
+def validate_one_epoch(model, val_loader, criterion, device, epoch, num_epochs, n_embed):
     model.eval()
     total_commitment_loss = 0.0
     total_recon_loss = 0.0
     total_loss = 0.0
     total_ssim = 0.0
+    total_ppl = 0.0
 
     with torch.no_grad():
         for batch in tqdm(val_loader, desc=f"Validation Epoch {epoch}/{num_epochs}"):
             batch = batch.to(device).float()
-            reconstructed, commitment_loss = model(batch)
+            reconstructed, commitment_loss, embed_ind = model(batch)
             recon_loss = criterion(reconstructed, batch)
             loss = recon_loss + commitment_loss
 
@@ -75,13 +91,14 @@ def validate_one_epoch(model, val_loader, criterion, device, epoch, num_epochs):
             total_recon_loss += recon_loss.item()
             total_loss += loss.item()
             total_ssim += calculate_batch_ssim(batch, reconstructed)
+            total_ppl += compute_perplexity_from_indices(embed_ind, n_embed)
 
     avg_commitment_loss = total_commitment_loss / len(val_loader)
     avg_recon_loss = total_recon_loss / len(val_loader)
     avg_total_loss = total_loss / len(val_loader)
     avg_ssim = total_ssim / len(val_loader)
 
-    return avg_commitment_loss, avg_recon_loss, avg_total_loss, avg_ssim
+    return avg_commitment_loss, avg_recon_loss, avg_total_loss, avg_ssim, (total_ppl / len(val_loader))
 
 
 def save_epoch_image(train_orig, train_recon, val_orig, val_recon, epoch, image_dir):
@@ -170,7 +187,12 @@ def plot_training_curves(metrics, save_path):
     train_ssim = metrics['train_ssim']
     val_ssim = metrics['val_ssim']
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    train_ppl = metrics.get('train_ppl')
+    val_ppl = metrics.get('val_ppl')
+    if train_ppl is not None and val_ppl is not None:
+        fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     # Loss curves
     axes[0].plot(epochs, train_loss, label='Train Loss', marker='o', linewidth=2)
@@ -189,6 +211,16 @@ def plot_training_curves(metrics, save_path):
     axes[1].set_title('Training and Validation SSIM', fontsize=14)
     axes[1].legend(fontsize=11)
     axes[1].grid(True, alpha=0.3)
+
+    # Perplexity curves
+    if train_ppl is not None and val_ppl is not None:
+        axes[2].plot(epochs, train_ppl, label='Train PPL', marker='o', linewidth=2)
+        axes[2].plot(epochs, val_ppl, label='Val PPL', marker='s', linewidth=2)
+        axes[2].set_xlabel('Epoch', fontsize=12)
+        axes[2].set_ylabel('Perplexity', fontsize=12)
+        axes[2].set_title('Codebook Perplexity', fontsize=14)
+        axes[2].legend(fontsize=11)
+        axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -238,14 +270,17 @@ def train(config):
         'train_loss': [],
         'val_loss': [],
         'train_ssim': [],
-        'val_ssim': []
+        'val_ssim': [],
+        'train_ppl': [],
+        'val_ppl': [],
     }
+    n_embed = model.code_layer.n_embed
 
     for epoch in range(1, num_epochs + 1):
-        train_commitment_loss, train_recon_loss, train_loss, train_ssim = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, epoch, num_epochs)
-        val_commitment_loss, val_recon_loss, val_loss, val_ssim = validate_one_epoch(
-            model, val_loader, criterion, device, epoch, num_epochs)
+        train_commitment_loss, train_recon_loss, train_loss, train_ssim, train_ppl = train_one_epoch(
+            model, train_loader, criterion, optimizer, device, epoch, num_epochs, n_embed)
+        val_commitment_loss, val_recon_loss, val_loss, val_ssim, val_ppl = validate_one_epoch(
+            model, val_loader, criterion, device, epoch, num_epochs, n_embed)
         
         # Track metrics
         metrics['epochs'].append(epoch)
@@ -253,6 +288,8 @@ def train(config):
         metrics['val_loss'].append(val_loss)
         metrics['train_ssim'].append(train_ssim)
         metrics['val_ssim'].append(val_ssim)
+        metrics['train_ppl'].append(train_ppl)
+        metrics['val_ppl'].append(val_ppl)
 
         # Save example images every 5 epochs
         if epoch % 5 == 0:
@@ -281,7 +318,8 @@ def train(config):
 
         print(f"Epoch {epoch}/{num_epochs}, "
               f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
-              f"Train SSIM: {train_ssim:.4f}, Val SSIM: {val_ssim:.4f}")
+              f"Train SSIM: {train_ssim:.4f}, Val SSIM: {val_ssim:.4f}, "
+              f"Train PPL: {train_ppl:.2f}, Val PPL: {val_ppl:.2f}")
 
         # Save best model
         if val_loss < best_val_loss:
@@ -303,5 +341,6 @@ if __name__ == '__main__':
 
     config = read_yaml_file(args.config) 
     train(config)
+
 
 
