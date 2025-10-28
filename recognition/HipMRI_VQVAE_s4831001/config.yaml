@@ -16,5 +16,14 @@ learning_rate: 0.001
 num_epochs: 30
 log_dir: logs
 
+train_transforms:
+  RandomHorizontalFlip
+  RandomVerticalFlip
+  RandomRotation
+  RandomAffine
+  GaussianNoise
+
+val_test_transforms: []
+  
 pretrained_path: logs/best_model.pth
 save_dir: predictions
