@@ -258,10 +258,10 @@ def train(config):
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    train_loader = get_dataloader(train_dir, batch_size, train_transforms, train_num_samples, shuffle=True)
-    val_loader = get_dataloader(val_dir, batch_size, val_test_transforms, val_num_samples, shuffle=False)
-    test_loader = get_dataloader(test_dir, 1, val_test_transforms, test_num_samples, shuffle=False)
-
+    train_loader = get_dataloader(train_dir, batch_size=batch_size, transform=train_transforms, num_samples=train_num_samples, shuffle=True)
+    val_loader = get_dataloader(val_dir, batch_size=batch_size, transform=val_test_transforms, num_samples=val_num_samples, shuffle=False)
+    test_loader = get_dataloader(test_dir, batch_size=1, transform=val_test_transforms, num_samples=test_num_samples, shuffle=False)
+    
     best_val_loss = float('inf')
 
     # Initialize metrics tracking
@@ -341,6 +341,7 @@ if __name__ == '__main__':
 
     config = read_yaml_file(args.config) 
     train(config)
+
 
 
 
