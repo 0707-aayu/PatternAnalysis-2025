@@ -16,6 +16,15 @@ def pad_to_fixed_size(tensor, target_height, target_width):
     pad_w = target_width - w
     return F.pad(tensor, (0, pad_w, 0, pad_h), mode='constant', value=0)
 
+class GaussianNoiseTransform:
+    def __init__(self, std=0.05, p=0.5):
+        self.std = std
+        self.p = p
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        if torch.rand(1).item() < self.p:
+            return x + torch.randn_like(x) * self.std
+        return x
+
 def load_data_2d(file_list, norm_image=True):
     """
     Loads NIfTI files and returns a list of normalized 2D torch tensors.
@@ -89,18 +98,30 @@ def calc_ssim(x, y):
     ssim_val = ssim(x.squeeze(), y.squeeze(), data_range=x.max() - x.min())
     return ssim_val
 
+
+
 def get_transforms(transform_list):
-    transform_ops = []
-    for t in transform_list:
-        if t == "ToTensor":
-            transform_ops.append(transforms.ToTensor())
-        elif t == "Normalize":
-            transform_ops.append(transforms.Normalize((0.5,), (0.5,)))
-        # Add more transforms as needed
-    if transform_ops:
-        return transforms.Compose(transform_ops)
-    else:
-        return None
+    """
+    Build an augmentation pipeline that works on tensors shaped [1, H, W].
+    (We don't add ToTensor/Normalize because you already return tensors and
+    z-score each slice in load_data_2d.)
+    """
+    ops = []
+    for t in (transform_list or []):
+        if t == "RandomHorizontalFlip":
+            ops.append(transforms.RandomHorizontalFlip(p=0.5))
+        elif t == "RandomVerticalFlip":
+            ops.append(transforms.RandomVerticalFlip(p=0.5))
+        elif t == "RandomRotation":
+            ops.append(transforms.RandomRotation(degrees=10))  # small, safe angles
+        elif t == "RandomAffine":
+            ops.append(transforms.RandomAffine(
+                degrees=0, translate=(0.05, 0.05), scale=(0.95, 1.05)
+            ))
+        elif t == "GaussianNoise":
+            ops.append(GaussianNoiseTransform(std=0.05, p=0.5))
+        # (leave unknown strings out silently)
+    return transforms.Compose(ops) if ops else None
     
 def read_yaml_file(filepath):
     with open(filepath, 'r') as f:
@@ -133,8 +154,15 @@ def combine_images(original_images, reconstructed_images, max_images=8):
         np.hstack(reconstructed_images)
     ])
 
-    # Normalize to 0-1 for better visualization
-    combined -= combined.min()
-    combined /= combined.max()
+    # Robust normalization to avoid division by zero
+    min_val = combined.min()
+    max_val = combined.max()
+    
+    if max_val > min_val:
+        combined = (combined - min_val) / (max_val - min_val)
+    else:
+        print(f"Warning: combined image has uniform value ({min_val}). Skipping normalization.")
+        # Set to mid-gray for visibility
+        combined = np.ones_like(combined) * 0.5
 
     return combined
