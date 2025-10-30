@@ -1,3 +1,23 @@
+# HipMRI VQ-VAE — Model training script
+# Author: Aayushi Arvind Dhande (s4831001)
+# Description: Train the VQ-VAE model on HipMRI slices, monitor losses,
+#              SSIM, and codebook perplexity, and save progress metrics
+#              and example reconstructions.
+
+"""Training script for the HipMRI VQ-VAE model.
+
+This script handles end-to-end training of a Vector-Quantized Variational Autoencoder
+on the HipMRI dataset, including:
+
+- Epoch-wise training/validation loops
+- Computation of reconstruction loss, commitment loss, SSIM, and codebook perplexity
+- Visualization of progress curves and reconstructed image samples
+- Saving of best-performing model and training metrics to disk
+
+Usage:
+    python train.py --config config.yaml
+"""
+
 import argparse
 import logging
 import os
@@ -20,6 +40,7 @@ from utils import calc_ssim, read_yaml_file, combine_images
 
 
 def calculate_batch_ssim(batch: torch.Tensor, reconstructed_batch: torch.Tensor) -> float:
+    """Compute mean SSIM score for a batch of reconstructed images."""
     batch_ssim = 0.0
     for i in range(batch.size(0)):
         original_image = batch[i, 0].cpu().detach().numpy()
@@ -28,9 +49,14 @@ def calculate_batch_ssim(batch: torch.Tensor, reconstructed_batch: torch.Tensor)
     return batch_ssim / batch.size(0)
 
 def compute_perplexity_from_indices(embed_ind: torch.Tensor, n_embed: int) -> float:
-    """
-    Perplexity = exp(entropy) of code usage for this batch.
-    embed_ind: [B, H', W'] long tensor of code indices.
+    """Compute codebook usage perplexity for a batch.
+
+    Args:
+        embed_ind (torch.Tensor): Tensor of code indices [B, H', W'].
+        n_embed (int): Total number of embeddings in the codebook.
+
+    Returns:
+        float: Codebook perplexity (higher = more diverse code usage).
     """
     flat = embed_ind.view(-1)
     counts = torch.bincount(flat, minlength=n_embed).float()
@@ -42,6 +68,7 @@ def compute_perplexity_from_indices(embed_ind: torch.Tensor, n_embed: int) -> fl
 
 
 def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, num_epochs, n_embed):
+    """Run one epoch of model training."""
     model.train()
     total_commitment_loss = 0.0
     total_recon_loss = 0.0
@@ -58,6 +85,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, nu
         loss.backward()
         optimizer.step()
 
+        # Accumulate metrics
         total_commitment_loss += commitment_loss.item()
         total_recon_loss += recon_loss.item()
         total_loss += loss.item()
@@ -73,6 +101,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, nu
 
 
 def validate_one_epoch(model, val_loader, criterion, device, epoch, num_epochs, n_embed):
+    """Evaluate model on validation set without updating weights."""
     model.eval()
     total_commitment_loss = 0.0
     total_recon_loss = 0.0
@@ -102,14 +131,12 @@ def validate_one_epoch(model, val_loader, criterion, device, epoch, num_epochs, 
 
 
 def save_epoch_image(train_orig, train_recon, val_orig, val_recon, epoch, image_dir):
-     """
-    Save a readable preview:
-      Left panel  : [Train Original | Train Recon]
-      Right panel : [Val   Original | Val   Recon]
-    """    
+     
+    """Save side-by-side visualization of training and validation reconstructions."""
+   
     # ------ helpers ------
     def to_bchw(arr):
-        """Ensure array is [1,1,H,W] or [B,1,H,W]. Accepts numpy or torch."""
+         """Ensure input array is shaped [1,1,H,W] for display."""
         if isinstance(arr, torch.Tensor):
             arr = arr.detach().cpu().numpy()
         # numpy path
@@ -145,7 +172,7 @@ def save_epoch_image(train_orig, train_recon, val_orig, val_recon, epoch, image_
     val_orig   = to_bchw(val_orig)
     val_recon  = to_bchw(val_recon)
 
-    # take the first image in the (mini)batch and squeeze to [H,W]
+    # Normalize and pair images
     to_img = lambda a: a[0, 0]
     tr_o = to_img(train_orig)
     tr_r = to_img(train_recon)
@@ -178,9 +205,7 @@ def save_epoch_image(train_orig, train_recon, val_orig, val_recon, epoch, image_
 
 
 def plot_training_curves(metrics, save_path):
-    """
-    Plot and save training/validation loss and SSIM curves
-    """
+    """Plot training/validation curves for Loss, SSIM, and Perplexity."""
     epochs = metrics['epochs']
     train_loss = metrics['train_loss']
     val_loss = metrics['val_loss']
@@ -228,7 +253,8 @@ def plot_training_curves(metrics, save_path):
     print(f"Training curves saved to {save_path}")
 
 def train(config):
-    # Setup variables
+    """Main training loop for VQ-VAE."""
+    # Load parameters
     model_params = config['model_parameters']
     batch_size = config['batch_size']
     learning_rate = config['learning_rate']
@@ -239,6 +265,7 @@ def train(config):
     val_dir = config['val_dataset_dir']
     test_dir = config['test_dataset_dir']
 
+    # Data and transforms
     train_num_samples = config.get('train_num_samples', None)
     val_num_samples = config.get('val_num_samples', None)
     test_num_samples = config.get('test_num_samples', None)
@@ -246,6 +273,7 @@ def train(config):
     train_transforms = get_transforms(config.get('train_transforms', []))
     val_test_transforms = get_transforms(config.get('val_test_transforms', []))
 
+     # Logging directories
     log_dir = config.get('log_dir', 'logs')
     image_dir = os.path.join(log_dir, 'images')
     os.makedirs(log_dir, exist_ok=True)
@@ -258,13 +286,14 @@ def train(config):
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
+    # Prepare DataLoaders
     train_loader = get_dataloader(train_dir, batch_size=batch_size, transform=train_transforms, num_samples=train_num_samples, shuffle=True)
     val_loader = get_dataloader(val_dir, batch_size=batch_size, transform=val_test_transforms, num_samples=val_num_samples, shuffle=False)
     test_loader = get_dataloader(test_dir, batch_size=1, transform=val_test_transforms, num_samples=test_num_samples, shuffle=False)
     
     best_val_loss = float('inf')
 
-    # Initialize metrics tracking
+    # Metric storage
     metrics = {
         'epochs': [],
         'train_loss': [],
@@ -276,6 +305,7 @@ def train(config):
     }
     n_embed = model.code_layer.n_embed
 
+    # --- Training loop ---
     for epoch in range(1, num_epochs + 1):
         train_commitment_loss, train_recon_loss, train_loss, train_ssim, train_ppl = train_one_epoch(
             model, train_loader, criterion, optimizer, device, epoch, num_epochs, n_embed)
@@ -291,7 +321,7 @@ def train(config):
         metrics['train_ppl'].append(train_ppl)
         metrics['val_ppl'].append(val_ppl)
 
-        # Save example images every 5 epochs
+        # Save visualization every 5 epochs
         if epoch % 5 == 0:
             was_training = model.training
             model.eval()
@@ -333,7 +363,7 @@ def train(config):
     plot_training_curves(metrics, os.path.join(log_dir, 'final_training_curves.png'))
     print(f"Training complete! Best validation loss: {best_val_loss:.4f}")   
 
-
+# --- Entry point ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train VQVAE on HipMRI dataset')
     parser.add_argument('--config', type=str, required=True, help='Path to the config YAML file')
@@ -341,6 +371,7 @@ if __name__ == '__main__':
 
     config = read_yaml_file(args.config) 
     train(config)
+
 
 
 
