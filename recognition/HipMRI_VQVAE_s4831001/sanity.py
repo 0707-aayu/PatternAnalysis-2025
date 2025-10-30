@@ -1,4 +1,21 @@
-# sanity_checks.py
+# HipMRI VQ-VAE — Sanity checks (data leakage & overfitting)
+# Author: Aayushi Arvind Dhande (s4831001)
+# Description: Utilities to detect dataset leakage (filename/patient overlaps,
+#              duplicate volumes) and a quick overfitting diagnostic using SSIM.
+
+"""Sanity checks for HipMRI experiments: leakage detection & quick overfit test.
+
+This module provides:
+  1) File-level and patient-level leakage checks across train/val/test splits.
+  2) Duplicate volume detection via voxel-hash signatures.
+  3) A quick, mini-batch overfitting diagnostic comparing Train vs Val SSIM.
+
+Usage (CLI):
+    python sanity.py \
+        --train_dir <path> --val_dir <path> --test_dir <path> \
+        --config config.yaml [--device cuda] [--sample_overfit_n 64]
+"""
+
 import os, re, argparse, random, hashlib, json
 import numpy as np
 import nibabel as nib
@@ -12,20 +29,30 @@ from utils import calc_ssim, read_yaml_file
 # Helpers for leakage checks
 # --------------------------
 def list_nii(root):
+    """List .nii files in a directory (non-recursive, sorted)."""
     return sorted([os.path.join(root, f) for f in os.listdir(root) if f.lower().endswith(('.nii', '.nii.gz'))])
 
 def sha1_of_array(arr: np.ndarray) -> str:
+    """Compute SHA-1 hex digest of a NumPy array's raw bytes."""
     h = hashlib.sha1()
     h.update(arr.tobytes())
     return h.hexdigest()
 
 def load_volume_signature(path):
-    """
-    Returns a signature dict for a .nii/.nii.gz file capturing:
-      - voxel hash (sha1)
-      - shape
-      - affine (rounded)
-    Also returns a 'patient_id' guessed from filename or parent folder.
+    """Build a content signature for a NIfTI file and guess a patient/volume ID.
+
+    Signature fields:
+        - sha1: voxel-data hash (float32 cast)
+        - shape: 2D/3D array shape
+        - affine: hash of rounded affine matrix (float32)
+
+    The patient/volume ID is inferred heuristically from filename or parent folder.
+
+    Args:
+        path: Path to .nii/.nii.gz file.
+
+    Returns:
+        (signature_dict, patient_id)
     """
     img = nib.load(path)
     data = img.get_fdata()
@@ -53,6 +80,7 @@ def load_volume_signature(path):
     return sig, patient_id
 
 def check_disjoint_sets(train_files, val_files, test_files):
+    """Check filename collisions across train/val/test."""
     sets = {
         "train": set(map(os.path.basename, train_files)),
         "val":   set(map(os.path.basename, val_files)),
@@ -109,6 +137,18 @@ def patient_overlap(train_files, val_files, test_files):
 # --------------------------------------------
 @torch.no_grad()
 def quick_overfit_check(config, device, n_samples=64, seed=42):
+    """Compare Train vs Val SSIM on a small sample to spot overfitting.
+
+    Loads the best checkpoint from `config.log_dir` and computes mean SSIM for
+    ~n_samples images in Train and Val. A large positive Train–Val gap suggests
+    overfitting; a small gap suggests healthy generalization.
+
+    Args:
+        config: Parsed YAML config with model parameters and dataset paths.
+        device: "cuda" or "cpu".
+        n_samples: Approx. number of images to evaluate per split.
+        seed: RNG seed for reproducibility.
+    """
     random.seed(seed)
     torch.manual_seed(seed)
 
@@ -123,6 +163,7 @@ def quick_overfit_check(config, device, n_samples=64, seed=42):
     val_loader   = get_dataloader(config["val_dataset_dir"],   batch_size=8, shuffle=False)
 
     def batch_stats(loader, limit):
+        """Return (mean_ssim, mean_loss) for ~limit images from a loader."""
         total_ssim, total_loss, count = 0.0, 0.0, 0
         for batch in loader:
             batch = batch.to(device).float()
@@ -162,6 +203,7 @@ def quick_overfit_check(config, device, n_samples=64, seed=42):
 # Main entry point
 # -----------------
 def main():
+    """Run leakage checks and optional overfitting diagnostic from CLI."""
     ap = argparse.ArgumentParser(description="Leakage & Overfitting Sanity Checks")
     ap.add_argument("--train_dir", required=True)
     ap.add_argument("--val_dir",   required=True)
