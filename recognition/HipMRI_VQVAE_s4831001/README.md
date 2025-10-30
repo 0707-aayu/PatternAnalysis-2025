@@ -2,18 +2,13 @@
 
 ## Description
 
-This repository implements a **Vector-Quantized Variational Autoencoder (VQ-VAE)** for reconstructing 2D pelvic MRI slices from the CSIRO HipMRI dataset.  
-The model learns a discrete latent representation using a codebook of embeddings, allowing high-fidelity and interpretable reconstructions suitable for medical research applications.  
-Reconstruction performance is evaluated using the Structural Similarity Index (SSIM) — with values above 0.6 considered clinically acceptable.
-
-**Reference:** [van den Oord et al., 2017 – Neural Discrete Representation Learning](https://arxiv.org/abs/1711.00937)
+This repository contains a **Vector-Quantized Variational Autoencoder (VQ-VAE)** that uses the CSIRO HipMRI dataset to reconstruct the 2D pelvic MRI slices. This model generates acceptable medical research reconstructions by learning discrete latent representations with an embedding codebook. The reconstructions are realistic and interpretable as well. The quality of the reconstructions is measured using the Structural Similarity Index (SSIM) in which a score above 0.6 is being considered clinically acceptable..
 
 ---
 
 ## VQ-VAE Description
 
-A **Vector-Quantized Variational Autoencoder (VQ-VAE)** is a generative model that extends the traditional VAE by introducing vector quantization, which replaces the continuous latent space with a discrete codebook of learned embeddings.  
-Each latent vector is mapped to its nearest codebook entry, producing compact and interpretable latent representations that improve reconstruction quality and stability — particularly valuable in medical imaging, where structural fidelity and anatomical consistency are essential.
+A **Vector-Quantized Variational Autoencoder (VQ-VAE)** is a VAE which incorporates vector quantization into the model by replacing the continuous latent space with a discrete codebook of learned embeddings. Each latent vector is quantised to its nearest codebook entry to produce concise and understandable representations that aid quality reconstruction whilst significantly increasing the stability, which is particularly valuable in medical imaging where structural fidelity and anatomical consistency are crucial.
 
 ---
 
@@ -25,23 +20,23 @@ Each latent vector is mapped to its nearest codebook entry, producing compact an
 
 The VQ-VAE comprises three components:
 
-- **Encoder** – Compresses input MRI slices into latent representations using convolutional layers with BatchNorm, ReLU, and residual stacks to maintain gradient flow.  
-- **Vector Quantiser (VQ)** – Replaces each latent vector with its nearest codebook embedding, discretising the latent space via nearest-neighbour lookup.  
-- **Decoder** – Reconstructs the original image from quantised embeddings using transposed convolutions and residual blocks.
+- **Encoder** – Down samples the input MRI slices into latent representations through convolutional layers with BatchNorm, ReLU and residual stacks to preserve gradient flow.  
+- **Vector Quantiser (VQ)** – Replaces each latent vector with its nearest codebook embedding, effectively discretising the latent space using a nearest-neighbour look-up.  
+- **Decoder** – Transposed convolutions combined with residual blocks are used to reconstruct the original image from quantised embeddings.
 
-Residual connections throughout the network ensure stable training and preserve fine structural details.
+Residual connections on all levels of the network provide stability of training and preserve fine structural details.
 
 ---
 
 ## Loss Function & Optimisation
 
-The model jointly optimises three loss terms:
+The model co-optimises optimises three loss terms:
 
 ![Loss Function Table ](images/Loss_function_table.png)
 
 ## Key Insight
 
-By discretising the latent space, the VQ-VAE avoids the “posterior collapse” issue common in VAEs and provides a stable, interpretable representation of MRI slices — capturing both global anatomical structures and local variations crucial for radiotherapy analysis.
+Latent discretisation prevents “posterior collapse” which is a common issue in VAEs and thus results in a reliable, interpretable representation of MRI slices that captures both global anatomical structures and local variations which are essential for radiotherapy analysis.
 
 ---
 
@@ -75,12 +70,12 @@ pip install -r requirements.txt
 
 ## Data Integrity & Overfitting Verification
 
-To confirm reliability, a diagnostic script (`sanity.py`) was used.
+To verify reliability, a diagnostic script (`sanity.py`) was used.
 
 ### Data Leakage Verification
 
-- No filename or patient ID overlaps across splits.
-- No duplicate slices or volumes within any split.
+- No filename or patient ID duplication.
+- No duplicate slices or volumes in any of the splits.
 
 ### Overfitting Diagnostic
 
@@ -89,7 +84,7 @@ To confirm reliability, a diagnostic script (`sanity.py`) was used.
 | SSIM     | 0.9365   | 0.9168     | +0.0197  | Minimal gap — no strong overfitting |
 | MSE Loss | 0.0241   | 0.0375     | +0.0134  | Stable generalization          |
 
-Validation and test SSIM (~0.935 ± 0.011) align closely, confirming robust generalization and balanced codebook utilisation (perplexity ≈ 270).
+The validation and test SSIM(~0:935± 0:011) are close to each other, indicating strong generalisation and a good utilization of the codebook (perplexity ≈ 270).
 
 ---
 
@@ -104,9 +99,9 @@ python sanity.py --train_dir keras_slices_data/keras_slices_train --val_dir kera
 
 ## Configuration Overview
 
-This repository uses a YAML-based configuration system (`config.yaml`) for full reproducibility across both training and inference.
+This repository has a configuration system that it based on YAML (config. yaml) so that everything is fully reproducible between training and inference.
 
-All key hyperparameters, dataset paths, and augmentation settings are declared in this single file and dynamically loaded by both `train.py` and `predict.py`.  
+All the important hyperparameters, dataset paths and augmentation settings are defined in this single file and dynamically loaded by both `train.py` and `predict.py`.  
 By modifying `config.yaml`, you can:
 - Re-train the model with different architectures or learning settings.
 - Adjust augmentation intensity and dataset directories.
@@ -117,6 +112,8 @@ By modifying `config.yaml`, you can:
 All parameters are sourced from the configuration dictionary parsed from `config.yaml`. Model parameters are grouped under `model_parameters`, while the rest control training, data loading, and prediction.
 
 #### Model Architecture Parameters (VQ-VAE)
+
+These parameters define the structure of the VQ-VAE in `modules.py` and are specified under `model_parameters`.
 
 | Parameter        | Description                                                  |
 |------------------|--------------------------------------------------------------|
@@ -129,6 +126,8 @@ All parameters are sourced from the configuration dictionary parsed from `config
 | `downscale_factor`| Factor by which encoder reduces spatial dimensions (power of 2).|
 
 #### Training Parameters (`train.py`)
+
+These parameters control the optimisation process, data flow, and logging during training.
 
 | Parameter      | Description                                                      |
 |----------------|------------------------------------------------------------------|
@@ -145,6 +144,8 @@ Logging Behaviour (hard-coded):
 
 #### Dataset & Data Loading Parameters
 
+Handled by `dataset.py` and `train.py`, these parameters manage dataset locations, sampling, and augmentation pipelines.
+
 | Parameter          | Description                                        |
 |--------------------|----------------------------------------------------|
 | `train_dataset_dir`| Directory with training `.nii` slices.            |
@@ -156,6 +157,8 @@ Logging Behaviour (hard-coded):
 | `norm_image`       | Flag to apply z-score normalisation per slice.     |
 
 #### Prediction Parameters (`predict.py`)
+
+This controls how the trained model is loaded and used for inference
 
 | Parameter         | Description                                   |
 |-------------------|-----------------------------------------------|
@@ -170,17 +173,17 @@ Logging Behaviour (hard-coded):
 
 The project is designed with modularity to enhance clarity, maintainability, and reproducibility across various components:
 
-- `modules.py`: Implements the full VQ-VAE architecture, including ResidualBlock, ResidualStack for stable deep feature extraction, VectorQuantizer for discrete codebook lookups and loss computation, and the unified VQVAE class that connects encoder, quantizer, and decoder into an end-to-end model.
+- `modules.py`: Implements full VQ-VAE architecture, including ResidualBlock, ResidualStack (for stable deep feature extraction), VectorQuantizer (discrete codebook lookups and loss computation), and the unified VQVAE class that connects encoder, quantizer, decoder pipeline as an end-to-end model.
 
-- `dataset.py`: Manages data loading and preprocessing for 2D MRI slices stored in NIfTI files. Defines HipMRIDataset to normalize slices, and get_dataloader() to build PyTorch loaders for training, validation, and testing, with support for data augmentation driven by config.yaml.
+- `dataset.py`: Data loader and preprocessor for 2D MRI slices in NIfTI files. It defines HipMRIDataset to standardize slices and get_dataloader() to create PyTorch loaders for training, validation and testing with option for data augmentation based on config.yaml.
 
-- `train.py`: Contains the training loop, initializing the model, optimizer, and data loaders, performing forward and backward passes, and calculating reconstruction, commitment, and quantization losses over multiple epochs. Tracks SSIM and perplexity, saves best checkpoints (logs/best_model.pth), and generates training curves.
+- `train.py`: Defines the training loop which includes initializing the model, optimizer and data loaders, perfoming forward and backward passes, calculation of reconstruction, commitment and quantization losses over multiple epochs. Tracks SSIM and perplexity, save best checkpoint (logs/best_model. pth), and generates training curves.
 
-- `predict.py`: Handles inference by loading a pre-trained checkpoint, reconstructing MRI slices, computing SSIM and MSE, and saving reconstructed images, comparison grids, and distribution plots (ssim_loss_distribution.png) to a predictions/ directory.
+- `predict.py`: Handles inference with a pre-trained checkpoint, loads reconstructed MRI slices and calculates SSIM and MSE as well as saving the reconstructed images, comparison grids and distribution plots (ssim_loss_distribution. png) to a predictions/ directory.
 
-- `utils.py`: Provides shared utilities for YAML parsing, NIfTI loading, SSIM calculation, visualization, and augmentation construction, including custom transforms such as Gaussian noise.
+- `utils.py`: It provides shared utilities for YAML parsing, NIfTI loading, SSIM calculation, visualization, and augmentation construction which includes custom transforms such as Gaussian noise.
 
-- `config.yaml`: Central configuration file that specifies all parameters—model architecture, hyperparameters, dataset paths, and augmentations—permitting full experiment reproducibility without modifying code.
+- `config.yaml`: Central configuration file specifying all parameters - model architecture, hyperparameters, dataset paths and augmentations—making entire experiment reproducible without modifying code.
 
 ---
 
@@ -230,13 +233,13 @@ The project is designed with modularity to enhance clarity, maintainability, and
 
 ## Results & Discussion
 
-• Training and validation curves converged smoothly with no signs of overfitting (SSIM gap < 0.02).  
-• The final model achieved:  
+• Training and validation curves converged well without overfitting (SSIM gap < 0.02).  
+• The final model's acheivements are as follows:  
   - **Mean SSIM:** 0.935 ± 0.011  
   - **Mean Reconstruction Loss:** 0.024  
   - **Codebook Perplexity:** ≈ 270–300  
-• Reconstructions retained sharp tissue boundaries and anatomical structure consistency.  
-• Data augmentation notably improved generalization and robustness to scanner variations.  
+• The reconstructions not only preserved the sharp tissue boundaries but it also maintained the consistency and coherence of the anatomical structures.  
+• Data augmentation improved generalization as well as robustness to scanner variations.  
 
 ---
 
@@ -250,7 +253,7 @@ The model demonstrated stable convergence across loss, SSIM, and codebook utiliz
 
 ### Reconstruction Quality Across Epochs
 
-Reconstruction fidelity improved gradually as training progressed:
+As the training progressed, reconstruction fidelity also improved .:
 
 | Epoch 5 | Epoch 10 | Epoch 15 |
 |----------|-----------|-----------|
@@ -264,11 +267,11 @@ Reconstruction fidelity improved gradually as training progressed:
 
 ## Sanity Check & Console Outputs
 
-After model training and testing, additional console-based evaluations were conducted to verify learning stability and ensure no data leakage or overfitting.
+Further evaluations were performed via the console in order to ensure the proper learning stability with no data leakage and overfitting.
 
 ### Training Phase Logs
 
-The VQ-VAE training progressed steadily across 30 epochs, achieving balanced convergence for loss, SSIM, and codebook perplexity.
+The VQ-VAE model training ran smoothly for 30 epochs and the observation was - loss, SSIM, and codebook perplexity were converged as expected.
 
 ![Training Start](images/training_start.png)
 ![Training Output](images/train_output.png)
@@ -277,7 +280,7 @@ The VQ-VAE training progressed steadily across 30 epochs, achieving balanced con
 
 ### Test Phase Results
 
-Testing confirmed the model’s high structural similarity and low reconstruction loss across 540 test slices.
+The model was tested on 540 test slices and the achieved results are having strong structural similarity (SSIM) with low reconstruction loss .
 
 ![Test Output](images/test_output.png)
 ![Test Output (Detailed)](images/test_output_1.png)
@@ -286,11 +289,10 @@ Testing confirmed the model’s high structural similarity and low reconstructio
 
 ### Sanity Check: Overfitting & Data Leakage Validation
 
-A lightweight diagnostic script (`sanity.py`) was executed post-training to confirm generalization performance.  
-It compared SSIM and loss over small batches from the train and validation splits.
+For assessing the generalization performance a lightweight diagnostic script which is `(sanity.py)` was ran. It has evaluated small batches from the train and validation splits on SSIM vs. Loss and Level of Loss.
 
 **Observation:**  
-The SSIM gap between training and validation was approximately **+0.0197**, indicating *no strong evidence of overfitting*.
+The SSIM gap between the training and validation was **approximately +0.0197**, which clearly doesn’t suggests any overfitting possibilities.
 
 ![Sanity Check Output](images/sanity_check_output.png)
 
@@ -299,29 +301,33 @@ The SSIM gap between training and validation was approximately **+0.0197**, indi
 
 ## Model Behavior Insights
 
-The reconstructed MRI slices display slight smoothness due to the Mean Squared Error (MSE) objective, which penalizes pixel-level deviations and causes the decoder to predict averaged intensities.  
-Combined with vector quantization and transposed convolutions, this smooths high-frequency edges but maintains globally consistent anatomy — a desirable property in medical imaging where structural fidelity outweighs pixel sharpness.
+The reconstructed MRI slices displays slight smoothness which is due to the Mean Squared Error (MSE) objective which penalizes pixel-level deviations and also causes decoder to predict averaged intensities. When in conjunction with vector quantization and transposed convolutions, this results in the smoothing of high-frequency edges during the decodig process while preserving globally consistent anatomy. This is a desirable attribute in medical imaging since the integrity of structures and their relationship to one another is more important than the precision of individual pixels.
 
-The slightly higher validation SSIM compared to training does not indicate overfitting. Instead, it results from stochastic augmentations (flips, affine shifts, Gaussian noise) applied only during training, which make reconstruction more challenging.  
-Validation data, being unaugmented, yield marginally better SSIM scores. This small gap (~0.02) demonstrates strong generalization and stable learning.
+The slightly higher validation SSIM relative to the training SSIM is not a sign of overfitting. This is a result of the stochastic augmentations (flips, affine shifts, Gaussian noise) applied only during training, which makes the reconstruction task more difficult. Because the validation data is unaugmented, this is why the validation SSIM score is higher. The small gap of ~0.02 indicates strong generalization and stable learning.
 
 ---
 
 ## Future Work
 
-- Hierarchical / Multi-Level VQ-VAE for richer latent hierarchies
-- 3D or Temporal Extensions to exploit volumetric continuity
-- Adaptive Codebook and Entropy Regularization
-- Hybrid Perceptual Losses to reduce smoothness
-- Clinical Evaluation & Cross-Dataset Validation for robustness
+- Hierarchical / Multi-Level VQ-VAE to manage more complex latent hierarchies
+- 3D or Temporal Extensions ascribed with volumetric consistency
+- Adaptive Codebook with Entropy Regularization
+- Hybrid Perceptual Losses geared towards for depth smoothness reduction
 
 ---
 
 ## Conclusion
 
-This implementation of VQ-VAE for HipMRI reconstruction achieved strong, reproducible results —  
-**SSIM ≈ 0.935 ± 0.011, Loss ≈ 0.024, Perplexity ≈ 280** — with clean generalization and no overfitting.  
-Through careful hyperparameter tuning and augmentation, the model preserved structural accuracy while maintaining computational efficiency.  
-It establishes a robust foundation for discrete representation learning in medical imaging, paving the way for perceptually enhanced and clinically interpretable reconstruction frameworks.
+This reconstruction of HipMRI with VQ-VAE yielded remarkable and reproducible outcomes which is **SSIM about 0.935 ± 0.011, Loss 0.024, and Perplexity 280** by demonstrating clear generalization and no overfitting.
+With meticulous hyperparameter tuning and augmentation, the model preserved structural integrity while achieving the high computational efficiency.
+It establishes a robust foundation for discrete representation learning in medical imaging thereby paving the way for perceptually enhanced and clinically interpretable reconstruction frameworks.
 
+## References
 
+1. van den Oord, A., Vinyals, O., & Kavukcuoglu, K. (2017). *Neural discrete representation learning*. Advances in Neural Information Processing Systems (NeurIPS). [https://arxiv.org/abs/1711.00937](https://arxiv.org/abs/1711.00937)
+
+2. Kingma, D. P., & Welling, M. (2014). *Auto-Encoding Variational Bayes*. arXiv preprint arXiv:1312.6114. [https://arxiv.org/abs/1312.6114](https://arxiv.org/abs/1312.6114)
+
+3. Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T., ... & Houlsby, N. (2020). *An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale*. arXiv preprint arXiv:2010.11929. [https://arxiv.org/abs/2010.11929](https://arxiv.org/abs/2010.11929)
+
+4. Wang, Z., Bovik, A. C., Sheikh, H. R., & Simoncelli, E. P. (2004). *Image quality assessment: From error visibility to structural similarity*. IEEE Transactions on Image Processing, 13(4), 600–612. [https://ieeexplore.ieee.org/document/1284395](https://ieeexplore.ieee.org/document/1284395)
